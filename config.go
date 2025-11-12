@@ -15,6 +15,9 @@ type Config struct {
 	Service         string
 	LogCommand      string
 	Workdir         string
+	EnvFile         string
+	BrokerEnvFile   string
+	ProverID        string
 	Interval        time.Duration
 	InitialLookback time.Duration
 	StateFile       string
@@ -59,13 +62,16 @@ func loadEnvFile(path string) error {
 	return scanner.Err()
 }
 
-func loadConfig() (Config, error) {
+func loadConfig(defaultEnvFile, defaultBrokerEnvFile string) (Config, error) {
 	cfg := Config{
 		Endpoint:        strings.TrimSpace(os.Getenv("SCRAPER_ENDPOINT")),
 		Service:         firstNonEmpty(os.Getenv("SCRAPER_SERVICE"), "broker"),
 		LogCommand:      firstNonEmpty(os.Getenv("SCRAPER_LOG_COMMAND"), "docker compose logs {service} --since {since} --no-color"),
 		Workdir:         firstNonEmpty(os.Getenv("SCRAPER_WORKDIR"), "~/boundless"),
+		EnvFile:         firstNonEmpty(os.Getenv("SCRAPER_ENV_FILE"), defaultEnvFile),
+		BrokerEnvFile:   firstNonEmpty(os.Getenv("SCRAPER_BROKER_ENV_FILE"), defaultBrokerEnvFile),
 		StateFile:       firstNonEmpty(os.Getenv("SCRAPER_STATE_FILE"), "scraper_state.json"),
+		ProverID:        firstNonEmpty(os.Getenv("SCRAPER_PROVER_ID"), os.Getenv("PROVER_ID")),
 		Interval:        parseDurationEnv("SCRAPER_INTERVAL", time.Minute),
 		InitialLookback: parseDurationEnv("SCRAPER_INITIAL_LOOKBACK", 10*time.Minute),
 		CommandTimeout:  parseDurationEnv("SCRAPER_COMMAND_TIMEOUT", time.Minute),
@@ -81,6 +87,16 @@ func loadConfig() (Config, error) {
 		return Config{}, err
 	}
 	cfg.Workdir = workdir
+
+	cfg.EnvFile, err = resolveOptionalFile(cfg.EnvFile)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.BrokerEnvFile, err = resolveOptionalFile(cfg.BrokerEnvFile)
+	if err != nil {
+		return Config{}, err
+	}
 
 	statePath, err := expandPath(cfg.StateFile)
 	if err != nil {
@@ -99,6 +115,26 @@ func loadConfig() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func resolveOptionalFile(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", nil
+	}
+
+	expanded, err := expandPath(path)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := os.Stat(expanded); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+
+	return expanded, nil
 }
 
 func firstNonEmpty(values ...string) string {
