@@ -38,6 +38,22 @@ func runOnce(cfg Config, state State) (RunResult, State, error) {
 	renderedCommand := strings.ReplaceAll(cfg.LogCommand, "{service}", cfg.Service)
 	renderedCommand = strings.ReplaceAll(renderedCommand, "{since}", since.UTC().Format(time.RFC3339Nano))
 
+	var envSources []string
+	if strings.TrimSpace(cfg.EnvFile) != "" {
+		envSources = append(envSources, cfg.EnvFile)
+	}
+	if strings.TrimSpace(cfg.BrokerEnvFile) != "" {
+		envSources = append(envSources, cfg.BrokerEnvFile)
+	}
+	if len(envSources) > 0 {
+		parts := []string{"set -a"}
+		for _, src := range envSources {
+			parts = append(parts, fmt.Sprintf("source %s", shellQuote(src)))
+		}
+		parts = append(parts, "set +a", renderedCommand)
+		renderedCommand = strings.Join(parts, " && ")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.CommandTimeout)
 	defer cancel()
 
@@ -68,11 +84,20 @@ func runOnce(cfg Config, state State) (RunResult, State, error) {
 		state.LastTimestamp = formatTimestamp(since)
 	}
 
+	log.Printf("scraped data: prover=%q orders=%d cycles=%.2f window=[%s -> %s]", cfg.ProverID, result.OrdersCompleted, result.TotalCycles, result.WindowStart.Format(time.RFC3339Nano), result.WindowEnd.Format(time.RFC3339Nano))
+
 	if err := postMetrics(cfg, result); err != nil {
 		return RunResult{}, state, err
 	}
 
 	return result, state, nil
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func parseLogs(r io.Reader, since time.Time) (RunResult, time.Time) {
@@ -128,6 +153,7 @@ func postMetrics(cfg Config, result RunResult) error {
 		"window_start":           result.WindowStart.UTC().Format(time.RFC3339Nano),
 		"window_end":             result.WindowEnd.UTC().Format(time.RFC3339Nano),
 		"service":                cfg.Service,
+		"prover_id":              cfg.ProverID,
 	}
 
 	body, err := json.Marshal(payload)
