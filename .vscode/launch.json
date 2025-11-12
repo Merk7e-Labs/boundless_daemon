@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Boundless Scraper",
+      "type": "go",
+      "request": "launch",
+      "program": "${workspaceFolder}",
+      "args": ["-env", "${workspaceFolder}/.env"],
+      "cwd": "${workspaceFolder}",
+      "env": {},
+      "showLog": true
+    }
+  ]
+}

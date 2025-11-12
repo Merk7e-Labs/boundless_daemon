@@ -1,0 +1,16 @@
+# Environment configuration
+.env
+
+# Local state/cache files
+scraper_state.json
+*.log
+boundless_scraper
+
+# Go build artifacts
+bin/
+*.exe
+*.test
+*.out
+
+# VS Code settings
+.vscode/*.log
