@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -17,27 +18,50 @@ import (
 )
 
 var (
-	completedOrderMarker = "Completed order:"
-	timestampRegex       = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z`)
+	// Match timestamps like 2025-11-07T08:57:30.266799Z anywhere in a line
+	timestampRegex = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z`)
+
+	// Match only Completed order lines whose order ID starts with 0x5a1f4d
+	targetOrderRegex = regexp.MustCompile(`✨\s*Completed order:\s*(0x5a1f4d[a-fA-F0-9]+)`)
+
+	completedOrderPrefix = "0x5a1f4d"
 )
 
+// RunResult holds scrape metrics for one run
 type RunResult struct {
 	OrdersCompleted int
+	OrderIDs        []string
 	WindowStart     time.Time
 	WindowEnd       time.Time
 	TotalCycles     float64
 }
 
+// runOnce performs one scrape iteration
 func runOnce(cfg Config, state State) (RunResult, State, error) {
 	now := time.Now().UTC()
-	since := now.Add(-cfg.InitialLookback)
+
+	var since time.Time
+	var sinceArg string
+
 	if ts, ok := state.Timestamp(); ok {
 		since = ts
+		sinceArg = fmt.Sprintf("--since %s", since.UTC().Format(time.RFC3339Nano))
+		log.Printf("Resuming from last timestamp: %s", sinceArg)
+	} else {
+		log.Println("No previous timestamp found; scraping full log history.")
 	}
 
-	renderedCommand := strings.ReplaceAll(cfg.LogCommand, "{service}", cfg.Service)
-	renderedCommand = strings.ReplaceAll(renderedCommand, "{since}", since.UTC().Format(time.RFC3339Nano))
+	// Replace placeholders; drop --since if empty
+	var renderedCommand string
+	if sinceArg == "" {
+		renderedCommand = strings.ReplaceAll(cfg.LogCommand, "--since {since}", "")
+		renderedCommand = strings.ReplaceAll(renderedCommand, "{service}", cfg.Service)
+	} else {
+		renderedCommand = strings.ReplaceAll(cfg.LogCommand, "{service}", cfg.Service)
+		renderedCommand = strings.ReplaceAll(renderedCommand, "{since}", sinceArg)
+	}
 
+	// Load .env sources with bash
 	var envSources []string
 	if strings.TrimSpace(cfg.EnvFile) != "" {
 		envSources = append(envSources, cfg.EnvFile)
@@ -57,7 +81,8 @@ func runOnce(cfg Config, state State) (RunResult, State, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.CommandTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", renderedCommand)
+	// Use bash to support "source"
+	cmd := exec.CommandContext(ctx, "bash", "-c", renderedCommand)
 	cmd.Dir = cfg.Workdir
 	output, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
@@ -78,13 +103,16 @@ func runOnce(cfg Config, state State) (RunResult, State, error) {
 
 	result.TotalCycles = float64(result.OrdersCompleted) * 0.01
 
-	if !latest.IsZero() && latest.After(since) {
+	// Save latest timestamp
+	if !latest.IsZero() && (state.LastTimestamp == "" || latest.After(since)) {
 		state.LastTimestamp = formatTimestamp(latest)
 	} else if state.LastTimestamp == "" {
-		state.LastTimestamp = formatTimestamp(since)
+		state.LastTimestamp = formatTimestamp(now)
 	}
 
-	log.Printf("scraped data: prover=%q orders=%d cycles=%.2f window=[%s -> %s]", cfg.ProverID, result.OrdersCompleted, result.TotalCycles, result.WindowStart.Format(time.RFC3339Nano), result.WindowEnd.Format(time.RFC3339Nano))
+	log.Printf("scraped data: prover=%q orders=%d (prefix=%s) cycles=%.2f window=[%s -> %s]",
+		cfg.ProverID, result.OrdersCompleted, completedOrderPrefix, result.TotalCycles,
+		result.WindowStart.Format(time.RFC3339Nano), result.WindowEnd.Format(time.RFC3339Nano))
 
 	if err := postMetrics(cfg, result); err != nil {
 		return RunResult{}, state, err
@@ -100,27 +128,28 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
+// parseLogs scans logs for completed orders with the 0x5a1f4d prefix
 func parseLogs(r io.Reader, since time.Time) (RunResult, time.Time) {
 	var result RunResult
 	var latest time.Time
+	var lineCount int
 
 	scanner := bufio.NewScanner(r)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1*1024*1024)
+	buf := make([]byte, 0, 256*1024)
+	scanner.Buffer(buf, 2*1024*1024)
+
 	for scanner.Scan() {
 		line := scanner.Text()
+		lineCount++
+
 		ts, ok := extractTimestamp(line)
-		if !ok {
-			continue
-		}
-		if !ts.After(since) {
-			continue
-		}
-		if ts.After(latest) {
+		if ok && ts.After(since) && ts.After(latest) {
 			latest = ts
 		}
-		if strings.Contains(line, completedOrderMarker) {
+
+		if matches := targetOrderRegex.FindStringSubmatch(line); len(matches) > 1 {
 			result.OrdersCompleted++
+			result.OrderIDs = append(result.OrderIDs, matches[1])
 		}
 	}
 
@@ -128,6 +157,7 @@ func parseLogs(r io.Reader, since time.Time) (RunResult, time.Time) {
 		log.Printf("error scanning logs: %v", err)
 	}
 
+	log.Printf("parsed %d lines, found %d orders with prefix %s", lineCount, result.OrdersCompleted, completedOrderPrefix)
 	result.WindowEnd = latest
 	return result, latest
 }
@@ -137,15 +167,14 @@ func extractTimestamp(line string) (time.Time, bool) {
 	if match == "" {
 		return time.Time{}, false
 	}
-	if ts, err := time.Parse(time.RFC3339Nano, match); err == nil {
-		return ts.UTC(), true
+	ts, err := time.Parse(time.RFC3339Nano, match)
+	if err != nil {
+		return time.Time{}, false
 	}
-	if ts, err := time.Parse(time.RFC3339, match); err == nil {
-		return ts.UTC(), true
-	}
-	return time.Time{}, false
+	return ts.UTC(), true
 }
 
+// postMetrics sends results to the configured endpoint
 func postMetrics(cfg Config, result RunResult) error {
 	payload := map[string]any{
 		"orders_completed":       result.OrdersCompleted,
@@ -154,6 +183,8 @@ func postMetrics(cfg Config, result RunResult) error {
 		"window_end":             result.WindowEnd.UTC().Format(time.RFC3339Nano),
 		"service":                cfg.Service,
 		"prover_id":              cfg.ProverID,
+		"prefix":                 completedOrderPrefix,
+		"order_ids":              result.OrderIDs,
 	}
 
 	body, err := json.Marshal(payload)
@@ -169,6 +200,11 @@ func postMetrics(cfg Config, result RunResult) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+
+	token := os.Getenv("SCRAPER_AUTH_TOKEN")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
