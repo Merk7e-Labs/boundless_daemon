@@ -42,6 +42,7 @@ func runOnce(cfg Config, state State) (RunResult, State, error) {
 
 	var since time.Time
 	var sinceArg string
+	var logReader io.Reader
 
 	if ts, ok := state.Timestamp(); ok {
 		since = ts
@@ -51,48 +52,59 @@ func runOnce(cfg Config, state State) (RunResult, State, error) {
 		log.Println("No previous timestamp found; scraping full log history.")
 	}
 
-	// Replace placeholders; drop --since if empty
-	var renderedCommand string
-	if sinceArg == "" {
-		renderedCommand = strings.ReplaceAll(cfg.LogCommand, "--since {since}", "")
-		renderedCommand = strings.ReplaceAll(renderedCommand, "{service}", cfg.Service)
-	} else {
-		renderedCommand = strings.ReplaceAll(cfg.LogCommand, "{service}", cfg.Service)
-		renderedCommand = strings.ReplaceAll(renderedCommand, "{since}", sinceArg)
-	}
-
-	// Load .env sources with bash
-	var envSources []string
-	if strings.TrimSpace(cfg.EnvFile) != "" {
-		envSources = append(envSources, cfg.EnvFile)
-	}
-	if strings.TrimSpace(cfg.BrokerEnvFile) != "" {
-		envSources = append(envSources, cfg.BrokerEnvFile)
-	}
-	if len(envSources) > 0 {
-		parts := []string{"set -a"}
-		for _, src := range envSources {
-			parts = append(parts, fmt.Sprintf("source %s", shellQuote(src)))
+	if cfg.LogFile != "" {
+		log.Printf("reading logs from file %s", cfg.LogFile)
+		f, err := os.Open(cfg.LogFile)
+		if err != nil {
+			return RunResult{}, state, fmt.Errorf("failed to open log file: %w", err)
 		}
-		parts = append(parts, "set +a", renderedCommand)
-		renderedCommand = strings.Join(parts, " && ")
+		defer f.Close()
+		logReader = f
+	} else {
+		// Replace placeholders; drop --since if empty
+		var renderedCommand string
+		if sinceArg == "" {
+			renderedCommand = strings.ReplaceAll(cfg.LogCommand, "--since {since}", "")
+			renderedCommand = strings.ReplaceAll(renderedCommand, "{service}", cfg.Service)
+		} else {
+			renderedCommand = strings.ReplaceAll(cfg.LogCommand, "{service}", cfg.Service)
+			renderedCommand = strings.ReplaceAll(renderedCommand, "{since}", sinceArg)
+		}
+
+		// Load .env sources with bash
+		var envSources []string
+		if strings.TrimSpace(cfg.EnvFile) != "" {
+			envSources = append(envSources, cfg.EnvFile)
+		}
+		if strings.TrimSpace(cfg.BrokerEnvFile) != "" {
+			envSources = append(envSources, cfg.BrokerEnvFile)
+		}
+		if len(envSources) > 0 {
+			parts := []string{"set -a"}
+			for _, src := range envSources {
+				parts = append(parts, fmt.Sprintf("source %s", shellQuote(src)))
+			}
+			parts = append(parts, "set +a", renderedCommand)
+			renderedCommand = strings.Join(parts, " && ")
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.CommandTimeout)
+		defer cancel()
+
+		// Use bash to support "source"
+		cmd := exec.CommandContext(ctx, "bash", "-c", renderedCommand)
+		cmd.Dir = cfg.Workdir
+		output, err := cmd.CombinedOutput()
+		if ctx.Err() == context.DeadlineExceeded {
+			return RunResult{}, state, fmt.Errorf("log command timed out: %w", ctx.Err())
+		}
+		if err != nil {
+			return RunResult{}, state, fmt.Errorf("log command failed: %w (output: %s)", err, bytes.TrimSpace(output))
+		}
+		logReader = bytes.NewReader(output)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.CommandTimeout)
-	defer cancel()
-
-	// Use bash to support "source"
-	cmd := exec.CommandContext(ctx, "bash", "-c", renderedCommand)
-	cmd.Dir = cfg.Workdir
-	output, err := cmd.CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded {
-		return RunResult{}, state, fmt.Errorf("log command timed out: %w", ctx.Err())
-	}
-	if err != nil {
-		return RunResult{}, state, fmt.Errorf("log command failed: %w (output: %s)", err, bytes.TrimSpace(output))
-	}
-
-	result, latest := parseLogs(bytes.NewReader(output), since)
+	result, latest := parseLogs(logReader, since)
 	if latest.After(result.WindowEnd) {
 		result.WindowEnd = latest
 	}
@@ -142,12 +154,19 @@ func parseLogs(r io.Reader, since time.Time) (RunResult, time.Time) {
 		line := scanner.Text()
 		lineCount++
 
-		ts, ok := extractTimestamp(line)
-		if ok && ts.After(since) && ts.After(latest) {
+		ts, hasTs := extractTimestamp(line)
+		if hasTs && ts.After(latest) {
 			latest = ts
 		}
 
 		if matches := targetOrderRegex.FindStringSubmatch(line); len(matches) > 1 {
+			if hasTs && !ts.After(since) {
+				continue
+			}
+			if !hasTs && !since.IsZero() {
+				// Without timestamps we cannot ensure incremental progress, so skip when resuming.
+				continue
+			}
 			result.OrdersCompleted++
 			result.OrderIDs = append(result.OrderIDs, matches[1])
 		}

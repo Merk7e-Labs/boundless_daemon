@@ -13,6 +13,7 @@ import (
 type Config struct {
 	Endpoint        string
 	Service         string
+	LogFile         string
 	LogCommand      string
 	Workdir         string
 	EnvFile         string
@@ -66,6 +67,7 @@ func loadConfig(defaultEnvFile, defaultBrokerEnvFile string) (Config, error) {
 	cfg := Config{
 		Endpoint:        strings.TrimSpace(os.Getenv("SCRAPER_ENDPOINT")),
 		Service:         firstNonEmpty(os.Getenv("SCRAPER_SERVICE"), "broker"),
+		LogFile:         strings.TrimSpace(os.Getenv("SCRAPER_LOG_FILE")),
 		LogCommand:      firstNonEmpty(os.Getenv("SCRAPER_LOG_COMMAND"), "docker compose logs {service} --since {since} --no-color"),
 		Workdir:         firstNonEmpty(os.Getenv("SCRAPER_WORKDIR"), "~/boundless"),
 		EnvFile:         firstNonEmpty(os.Getenv("SCRAPER_ENV_FILE"), defaultEnvFile),
@@ -80,6 +82,14 @@ func loadConfig(defaultEnvFile, defaultBrokerEnvFile string) (Config, error) {
 
 	if cfg.Endpoint == "" {
 		return Config{}, fmt.Errorf("SCRAPER_ENDPOINT must be set")
+	}
+
+	if cfg.LogFile != "" {
+		logPath, err := expandPath(cfg.LogFile)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.LogFile = logPath
 	}
 
 	workdir, err := expandPath(cfg.Workdir)
