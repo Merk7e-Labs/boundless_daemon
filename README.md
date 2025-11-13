@@ -48,6 +48,12 @@ cp .env.example .env
 
 ## Running the scraper
 
+export SCRAPER_ENDPOINT=http://localhost:8080/mock   # swap to real endpoint later
+export SCRAPER_WORKDIR=~/boundless                   # wherever docker-compose lives
+export SCRAPER_SERVICE=broker2                       # match running service name
+export SCRAPER_STATE_FILE=~/scraper_state.json       # or /tmp/…
+export SCRAPER_PROVER_ID=<your prover id>            #change this to the prover id of your actual prover
+
 Run in one-off mode for debugging:
 
 ```bash
