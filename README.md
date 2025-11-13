@@ -46,8 +46,23 @@ cp .env.example .env
 | `SCRAPER_COMMAND_TIMEOUT`  | Timeout for the docker log command (Go duration string).                                     | `60s`                                         |
 | `SCRAPER_POST_TIMEOUT`     | Timeout for posting metrics to the remote endpoint.                                          | `15s`                                         |
 
+
 ## Running the scraper
 
+ssh -p15306 -R 19090:127.0.0.1:9090 user01@120.240.236.185  #run this for the port forwarding
+ssh -p15306 -R 29090:127.0.0.1:9090 user01@120.240.236.185
+
+
+export SCRAPER_LOG_COMMAND="docker compose logs {service} {since} --no-color"     #command needed
+
+export SCRAPER_ENDPOINT=http://localhost:8080/mock   # swap to real endpoint later
+export SCRAPER_WORKDIR=~/boundless                   # wherever docker-compose lives
+export SCRAPER_SERVICE=broker2                       # match running service name
+export SCRAPER_STATE_FILE=~/scraper_state.json       # or /tmp/…
+export SCRAPER_PROVER_ID=<your prover id>            #change this to the prover id of your actual prover
+
+export SCRAPER_ENDPOINT="http://127.0.0.1:19090/api/offchain/report"
+export SCRAPER_ENDPOINT="http://127.0.0.1:29090/api/offchain/report"
 Run in one-off mode for debugging:
 
 ```bash

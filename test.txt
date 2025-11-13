@@ -425,3 +425,20 @@ broker2-1  | 2025-11-07T08:59:30.266799Z  INFO broker::submitter: ✨ Completed 
 broker2-1  | 2025-11-07T08:57:30.266799Z  INFO broker::submitter: ✨ Completed order: 0x5a1f4d3975749719ef98616e0afb26fbc2216cb4523bdeb1 eth_reward: 0.000000000000000000 collateral_reward: 0.000000000000000000 ✨
 broker2-1  | 2025-11-07T08:59:30.266799Z  INFO broker::submitter: ✨ Completed order: 0x5a1f4d3975749719ef984716e0afb26fbc2216cb4523bdeb1 eth_reward: 0.000000000000000000 collateral_reward: 0.000000000000000000 ✨
 broker2-1  | 2025-11-07T09:59:30.266799Z  INFO broker::submitter: ✨ Completed order: 0x5a1f4d3975749719ef984816e0afb26fbc2216cb4523bdeb1 eth_reward: 0.000000000000000000 collateral_reward: 0.000000000000000000 ✨
+broker2-1  | 2025-11-07T09:59:31.101923Z  INFO broker::submitter: ✨ Completed order: 0x5a1f4d397cf8e1123bdbd912ab44c7d9ce1194c2e81a49cbb1 eth_reward: 0.000000000000000001 collateral_reward: 0.000000000000000000 ✨
+broker2-1  | 2025-11-07T09:59:31.902112Z  INFO broker::submitter: ✨ Completed order: 0x5a1f4d3979c1ef0aa12f7bd92df90ccbc78e0fed092bb1cfa3 eth_reward: 0.000000000000000000 collateral_reward: 0.000000000000000001 ✨
+broker2-1  | 2025-11-07T09:59:32.744512Z  INFO broker::submitter: ✨ Completed order: 0x5a1f4d3971ee44793ac44bfa9120e8e7ee588cbb9bd01ff291 eth_reward: 0.000000000000000002 collateral_reward: 0.000000000000000000 ✨
+broker2-1  | 2025-11-07T09:59:33.588214Z  INFO broker::submitter: ✨ Completed order: 0x5a1f4d397f2291cb84fd1004e2ccab004ce810a1c91b449300 eth_reward: 0.000000000000000000 collateral_reward: 0.000000000000000003 ✨
+broker2-1  | 2025-11-07T09:59:34.367811Z  INFO broker::submitter: ✨ Completed order: 0xe1f02ba9bb224cb8ef443a0021ac0dd4912ff4cf09dbbb1293 eth_reward: 0.000000000000000001 collateral_reward: 0.000000000000000001 ✨
+broker2-1  | 2025-11-07T09:59:35.113552Z  INFO broker::submitter: ✨ Completed order: 0x6ae79de18ac229fc92bd441efe83da119dfb01f12c24af67ad eth_reward: 0.000000000000000000 collateral_reward: 0.000000000000000002 ✨
+broker2-1  | 2025-11-07T09:59:35.904422Z  INFO broker::submitter: ✨ Completed order: 0x2df91400ce91ac44fb1833882cf11d12ac48aa1900c9e138fa eth_reward: 0.000000000000000003 collateral_reward: 0.000000000000000000 ✨
+broker2-1  | 2025-11-07T09:59:36.746091Z  INFO broker::submitter: ✨ Completed order: 0x5a1f4d39712ae49c0fe22bd0912cf991ad043244c1944bdf0 eth_reward: 0.000000000000000001 collateral_reward: 0.000000000000000004 ✨
+broker2-1  | 2025-11-07T09:59:37.581923Z  INFO broker::submitter: ✨ Completed order: 0xd22144f9aa123d88fed00199bba11923af44afcc901efbb112 eth_reward: 0.000000000000000000 collateral_reward: 0.000000000000000002 ✨
+broker2-1  | 2025-11-07T09:59:38.420155Z  INFO broker::submitter: ✨ Completed order: 0xc11aa92995dfb8123cad1e24f99c003efac07bbccfea1190aa eth_reward: 0.000000000000000002 collateral_reward: 0.000000000000000001 ✨
+broker2-1  | 2025-11-07T09:59:39.292381Z  INFO broker::submitter: ✨ Completed order: 0x5a1f4d3972240dfb119c002aab19c34ae79df194bade13 eth_reward: 0.000000000000000001 collateral_reward: 0.000000000000000000 ✨
+broker2-1  | 2025-11-07T09:59:40.107491Z  INFO broker::submitter: ✨ Completed order: 0xbb22fa109c4411db88f0991aeef12abd334f91aa77c29bf445 eth_reward: 0.000000000000000003 collateral_reward: 0.000000000000000001 ✨
+broker2-1  | 2025-11-07T09:59:40.894512Z  INFO broker::submitter: ✨ Completed order: 0xcfff11aa23bb998c1142f900cd221fab112aaefcd00491ba11 eth_reward: 0.000000000000000001 collateral_reward: 0.000000000000000002 ✨
+broker2-1  | 2025-11-07T09:59:41.734883Z  INFO broker::submitter: ✨ Completed order: 0x8d22f9cd0090ab1144ceffe91129bbd814ac2eeff129003bab eth_reward: 0.000000000000000000 collateral_reward: 0.000000000000000001 ✨
+broker2-1  | 2025-11-07T09:59:42.591771Z  INFO broker::submitter: ✨ Completed order: 0x5a1f4d397002ff4491cca11fb9011223cdffee00129ab10931 eth_reward: 0.000000000000000002 collateral_reward: 0.000000000000000003 ✨
+broker2-1  | 2025-11-07T10:59:42.591771Z  INFO broker::submitter: ✨ Completed order: 0x5a1f4d397002ff4491cca11fb9011223cdffee00129ab10441 eth_reward: 0.000000000000000002 collateral_reward: 0.000000000000000003 ✨
+
