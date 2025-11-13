@@ -61,13 +61,15 @@ func runOnce(cfg Config, state State) (RunResult, State, error) {
 		defer f.Close()
 		logReader = f
 	} else {
-		// Replace placeholders; drop --since if empty
-		var renderedCommand string
+		// Replace placeholders; support templates where {since} is the whole flag
+		renderedCommand := strings.ReplaceAll(cfg.LogCommand, "{service}", cfg.Service)
 		if sinceArg == "" {
-			renderedCommand = strings.ReplaceAll(cfg.LogCommand, "--since {since}", "")
-			renderedCommand = strings.ReplaceAll(renderedCommand, "{service}", cfg.Service)
+			if strings.Contains(renderedCommand, "--since {since}") {
+				renderedCommand = strings.ReplaceAll(renderedCommand, "--since {since}", "")
+			} else {
+				renderedCommand = strings.ReplaceAll(renderedCommand, "{since}", "")
+			}
 		} else {
-			renderedCommand = strings.ReplaceAll(cfg.LogCommand, "{service}", cfg.Service)
 			renderedCommand = strings.ReplaceAll(renderedCommand, "{since}", sinceArg)
 		}
 
