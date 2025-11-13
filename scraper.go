@@ -115,7 +115,19 @@ func runOnce(cfg Config, state State) (RunResult, State, error) {
 		result.WindowEnd = result.WindowStart
 	}
 
-	result.TotalCycles = float64(result.OrdersCompleted) * 0.01
+	windowOrders := result.OrdersCompleted
+	windowCycles := float64(windowOrders) * 0.01
+
+	totalOrders := state.TotalOrders
+	totalCycles := state.TotalCycles
+
+	if windowOrders > 0 {
+		totalOrders += windowOrders
+		totalCycles += windowCycles
+	}
+
+	result.TotalCycles = totalCycles
+	result.OrdersCompleted = totalOrders
 
 	// Save latest timestamp
 	if !latest.IsZero() && (state.LastTimestamp == "" || latest.After(since)) {
@@ -124,8 +136,11 @@ func runOnce(cfg Config, state State) (RunResult, State, error) {
 		state.LastTimestamp = formatTimestamp(now)
 	}
 
-	log.Printf("scraped data: prover=%q orders=%d (prefix=%s) cycles=%.2f window=[%s -> %s]",
-		cfg.ProverID, result.OrdersCompleted, completedOrderPrefix, result.TotalCycles,
+	state.TotalOrders = totalOrders
+	state.TotalCycles = totalCycles
+
+	log.Printf("scraped data: prover=%q window_orders=%d total_orders=%d (prefix=%s) total_cycles=%.2f window=[%s -> %s]",
+		cfg.ProverID, windowOrders, result.OrdersCompleted, completedOrderPrefix, result.TotalCycles,
 		result.WindowStart.Format(time.RFC3339Nano), result.WindowEnd.Format(time.RFC3339Nano))
 
 	if err := postMetrics(cfg, result); err != nil {

@@ -10,7 +10,9 @@ import (
 
 // State holds the last processed timestamp for incremental scraping.
 type State struct {
-	LastTimestamp string `json:"last_timestamp"`
+	LastTimestamp string  `json:"last_timestamp"`
+	TotalOrders   int     `json:"total_orders"`
+	TotalCycles   float64 `json:"total_cycles"`
 }
 
 // Timestamp returns the saved timestamp, if available.
