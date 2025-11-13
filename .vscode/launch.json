@@ -2,13 +2,46 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Boundless Scraper",
+      "//": "Uses local test.txt and the mock server; great for stepping through parser + posting logic.",
+      "name": "Scraper (local test file + mock server)",
       "type": "go",
       "request": "launch",
       "program": "${workspaceFolder}",
-      "args": ["-env", "${workspaceFolder}/.env"],
+      "args": [
+        "-env",
+        "${workspaceFolder}/.env",
+        "-once"
+      ],
       "cwd": "${workspaceFolder}",
-      "env": {},
+      "env": {
+        "SCRAPER_ENDPOINT": "http://localhost:8080/mock",
+        "SCRAPER_LOG_FILE": "${workspaceFolder}/test.txt",
+        "SCRAPER_STATE_FILE": "${workspaceFolder}/.vscode/debug_state.json",
+        "SCRAPER_WORKDIR": "${workspaceFolder}",
+        "SCRAPER_PROVER_ID": "debug-prover"
+      },
+      "showLog": true
+    },
+    {
+      "//": "Attaches to live docker logs; expects docker compose + envs inside SCRAPER_WORKDIR.",
+      "name": "Scraper (docker compose logs)",
+      "type": "go",
+      "request": "launch",
+      "program": "${workspaceFolder}",
+      "args": [
+        "-env",
+        "${workspaceFolder}/.env"
+      ],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "SCRAPER_LOG_FILE": "",
+        "SCRAPER_WORKDIR": "${env:SCRAPER_WORKDIR}",
+        "SCRAPER_SERVICE": "${env:SCRAPER_SERVICE}",
+        "SCRAPER_ENDPOINT": "${env:SCRAPER_ENDPOINT}",
+        "SCRAPER_STATE_FILE": "${env:SCRAPER_STATE_FILE}",
+        "SCRAPER_PROVER_ID": "${env:SCRAPER_PROVER_ID}"
+      },
       "showLog": true
     }
   ]
