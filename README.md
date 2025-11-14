@@ -2,101 +2,152 @@
 
 Go-based scraper that reads docker compose logs for the configured broker
 service, counts `Completed order` entries since the last processed timestamp,
-calculates the total number of cycles (0.01 trillion cycles per order), and
-POSTs the metrics to a remote endpoint.
-
-The scraper keeps its last processed timestamp in a JSON state file so that it
-can resume after restarts without double counting.
-
-## Project layout
-
-```
-.
-├── go.mod                     # Go module definition
-├── main.go                    # Entry point / scheduler loop
-├── config.go                  # .env loading and configuration helpers
-├── scraper.go                 # Log parsing, HTTP posting, command runner
-├── state.go                   # Persistent timestamp storage helpers
-├── .env.example               # Sample configuration
-└── .vscode/launch.json        # VS Code debug configuration
-```
+calculates total cycles (0.01 trillion cycles per order), and POSTs the metrics
+to a remote endpoint. A JSON state file lets the scraper resume after restarts
+without double counting.
 
 ## Requirements
 
 - Go 1.22+
 - Docker CLI available on the host (for running the configured log command)
 
-## Configuration
+## Project layout
 
-Copy `.env.example` to `.env` and adjust the values as needed:
-
-```bash
-cp .env.example .env
+```
+.
+├── cmd/
+│   ├── mockserver/             # Local HTTP server to inspect payloads
+│   └── scraper/                # Production entrypoint (flags, signal handling)
+├── internal/
+│   ├── app/                    # Scheduler loop & orchestration
+│   ├── config/                 # Runtime configuration loader/validation
+│   ├── envfile/                # dotenv loader used by the CLI
+│   ├── filesystem/             # Path helpers (tilde expansion, abs paths)
+│   ├── scraper/                # Log parsing, docker invocation, HTTP posting
+│   └── state/                  # Persistent timestamp storage helpers
+├── .env.example                # Sample configuration
+├── agg_state.json              # Example state snapshot
+└── README.md
 ```
 
-| Variable                   | Description                                                                                  | Default                                       |
-|----------------------------|----------------------------------------------------------------------------------------------|-----------------------------------------------|
-| `SCRAPER_ENDPOINT`         | **Required.** HTTP endpoint that receives the JSON payload.                                   | –                                             |
-| `SCRAPER_SERVICE`          | Docker compose service name to read logs from (e.g. `broker`, `broker2`, `broker3`).         | `broker`                                      |
-| `SCRAPER_LOG_COMMAND`      | Command template used to fetch logs. `{service}` and `{since}` placeholders are supported.   | `docker compose logs {service} --since {since} --no-color` |
-| `SCRAPER_WORKDIR`          | Directory from which the log command is executed (e.g. `/home/ubuntu/boundless`).            | `~/boundless`                                 |
-| `SCRAPER_STATE_FILE`       | Path to the JSON file storing the last processed timestamp.                                   | `scraper_state.json`                          |
-| `SCRAPER_INTERVAL`         | Interval between scrapes (Go duration string, e.g. `60s`, `5m`).                             | `60s`                                         |
-| `SCRAPER_INITIAL_LOOKBACK` | How far back to look on the first run if no state exists (e.g. `10m`, `1h`).                  | `10m`                                         |
-| `SCRAPER_COMMAND_TIMEOUT`  | Timeout for the docker log command (Go duration string).                                     | `60s`                                         |
-| `SCRAPER_POST_TIMEOUT`     | Timeout for posting metrics to the remote endpoint.                                          | `15s`                                         |
+## Configuration
 
+ Edit `.env.example` (the default env file) and adjust the values as needed,
+ or pass `--env /path/to/file` to load a different dotenv file.
 
-## Running the scraper
+| Variable | Description | Default |
+| --- | --- | --- |
+| `SCRAPER_ENDPOINT` | **Required.** HTTP endpoint that receives the JSON payload. | _(none)_ |
+| `SCRAPER_SERVICE` | Docker compose service name to read logs from. | `broker` |
+| `SCRAPER_LOG_COMMAND` | Command template used to fetch logs. `{service}` and `{since}` placeholders are supported. | `docker compose logs {service} --since {since} --no-color` |
+| `SCRAPER_WORKDIR` | Directory from which the log command is executed. | `~/boundless` |
+| `SCRAPER_LOG_FILE` | Optional log file to read instead of executing a command. | _(empty)_ |
+| `SCRAPER_STATE_FILE` | Path to the JSON file storing scraper state. | `scraper_state.json` |
+| `SCRAPER_INTERVAL` | Interval between scrapes (Go duration, e.g. `60s`, `5m`). | `15m` |
+| `SCRAPER_COMMAND_TIMEOUT` | Timeout for the docker log command. | `60s` |
+| `SCRAPER_POST_TIMEOUT` | Timeout for posting metrics. | `15s` |
+| `SCRAPER_PROVER_ID` | Optional prover identifier reported with metrics. | _(empty)_ |
+| `SCRAPER_PROVER_ADDRESS` | Optional prover address sent with payloads. | _(empty)_ |
 
-ssh -p15306 -R 19090:127.0.0.1:9090 user01@120.240.236.185  #run this for the port forwarding
-ssh -p15306 -R 29090:127.0.0.1:9090 user01@120.240.236.185
+You can also point `--env` at any dotenv file (default `.env`). Additional env
+files can be chained with `SCRAPER_ENV_FILE` and `SCRAPER_BROKER_ENV_FILE`.
 
+## Running locally
 
-export SCRAPER_LOG_COMMAND="docker compose logs {service} {since} --no-color"     #command needed
-
-export SCRAPER_ENDPOINT=http://localhost:8080/mock   # swap to real endpoint later
-export SCRAPER_WORKDIR=~/boundless                   # wherever docker-compose lives
-export SCRAPER_SERVICE=broker2                       # match running service name
-export SCRAPER_STATE_FILE=~/scraper_state.json       # or /tmp/…
-export SCRAPER_PROVER_ID=<your prover id>            #change this to the prover id of your actual prover
-
-export SCRAPER_ENDPOINT="http://127.0.0.1:19090/api/offchain/report"
-export SCRAPER_ENDPOINT="http://127.0.0.1:29090/api/offchain/report"
-Run in one-off mode for debugging:
+Run a single scrape for debugging:
 
 ```bash
-go run . -once
+go run ./cmd/scraper -once
 ```
 
 Run continuously (default behaviour):
 
 ```bash
-go run .
+go run ./cmd/scraper
 ```
 
-### JSON payload example
+### Boundless dashboard / port forwarding workflow
 
+If you rely on SSH reverse tunnels to feed the Boundless dashboard, keep the
+existing steps in place:
+
+```bash
+ssh -p15306 -R 19090:127.0.0.1:9090 user01@120.240.236.185
+ssh -p15306 -R 29090:127.0.0.1:9090 user01@120.240.236.185
+
+export SCRAPER_LOG_COMMAND="docker compose logs {service} {since} --no-color"
+export SCRAPER_ENDPOINT="http://127.0.0.1:19090/api/offchain/report"
+export SCRAPER_ENDPOINT="http://127.0.0.1:29090/api/offchain/report"
 ```
-{
-  "orders_completed": 50,
-  "total_cycles_trillions": 0.5,
-  "window_start": "2025-11-07T05:00:00Z",
-  "window_end": "2025-11-07T05:40:21Z",
-  "service": "broker2"
-}
+
+Set `SCRAPER_WORKDIR` (for example `~/boundless`) to the directory that contains
+`docker-compose.yml`, match `SCRAPER_SERVICE` with the running docker compose
+service (`broker`, `broker2`, `broker3`, ...), and export
+`SCRAPER_PROVER_ID=<your prover id>` and
+`SCRAPER_PROVER_ADDRESS=<your prover address>`. You can place these exports directly in
+`.env` so the scraper always uses the forwarded dashboard endpoints.
+
+## Building
+
+Standard build on the host OS:
+
+```bash
+go build -o dist/boundless-scraper ./cmd/scraper
 ```
 
-- `orders_completed` – number of `Completed order` log lines detected in the
-  interval.
-- `total_cycles_trillions` – orders multiplied by 0.01.
-- `window_start` – timestamp passed to the docker log command.
-- `window_end` – newest timestamp observed while parsing logs.
-- `service` – docker compose service name used for the scrape.
+Cross-compile a Linux AMD64 binary from Windows PowerShell:
 
-## Debugging in VS Code
+```powershell
+$Env:GOOS = "linux"
+$Env:GOARCH = "amd64"
+go build -trimpath -ldflags "-s -w" -o dist/boundless-scraper ./cmd/scraper
+Remove-Item Env:GOOS, Env:GOARCH
+```
 
-A Go launch configuration is provided in `.vscode/launch.json`. It runs the
-scraper with the workspace `.env` file and streams output to the integrated
-terminal. Adjust the arguments or environment variables to suit your
-deployment.
+## Deploying to Ubuntu with systemd
+
+1. Copy the binary plus your `.env` files to the server (example using `scp`):
+   ```powershell
+   scp dist/boundless-scraper ubuntu@your-server:/opt/boundless-scraper/bin/
+   scp .env ubuntu@your-server:/opt/boundless-scraper/config/.env
+   scp .env.broker ubuntu@your-server:/opt/boundless-scraper/config/.env.broker
+   ```
+   Ensure `/opt/boundless-scraper` is owned by the service user
+   (`sudo chown -R ubuntu:ubuntu /opt/boundless-scraper`).
+
+2. Create `/etc/systemd/system/boundless-scraper.service`:
+   ```
+   [Unit]
+   Description=Boundless scraper
+   Wants=network-online.target
+   After=network-online.target
+
+   [Service]
+   Type=simple
+   User=ubuntu
+   Group=ubuntu
+   WorkingDirectory=/opt/boundless-scraper
+   EnvironmentFile=/opt/boundless-scraper/config/.env
+   EnvironmentFile=/opt/boundless-scraper/config/.env.broker
+   ExecStart=/opt/boundless-scraper/bin/boundless-scraper --env /opt/boundless-scraper/config/.env
+   Restart=on-failure
+   RestartSec=5s
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+3. Enable and start the service:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now boundless-scraper.service
+   sudo systemctl status boundless-scraper.service
+   ```
+
+4. Tail logs via journald:
+   ```bash
+   journalctl -u boundless-scraper.service -f
+   ```
+
+For updates, copy the new binary, run `sudo systemctl restart boundless-scraper`,
+and confirm the new version via `journalctl`.

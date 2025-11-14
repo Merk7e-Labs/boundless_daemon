@@ -1,4 +1,4 @@
-package main
+package state
 
 import (
 	"encoding/json"
@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"boundless_scraper/internal/filesystem"
 )
 
 // State holds the last processed timestamp for incremental scraping.
@@ -27,11 +29,11 @@ func (s State) Timestamp() (time.Time, bool) {
 	return ts, true
 }
 
-// loadState loads the previous state from disk, if present.
-func loadState(path string) (State, error) {
+// Load reads the previous state from disk, if present.
+func Load(path string) (State, error) {
 	var s State
 
-	expanded, err := expandPath(path)
+	expanded, err := filesystem.ExpandPath(path)
 	if err != nil {
 		return s, err
 	}
@@ -53,21 +55,20 @@ func loadState(path string) (State, error) {
 	return s, nil
 }
 
-// saveState writes the current scraper state to disk safely.
-func saveState(path string, state State) error {
-	expanded, err := expandPath(path)
+// Save writes the current scraper state to disk safely.
+func Save(path string, s State) error {
+	expanded, err := filesystem.ExpandPath(path)
 	if err != nil {
 		return err
 	}
 
-	// Always log where we're writing, to help debug path issues.
 	log.Printf("Saving state to %s", expanded)
 
 	if err := os.MkdirAll(filepath.Dir(expanded), 0o755); err != nil {
 		return err
 	}
 
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -84,7 +85,7 @@ func saveState(path string, state State) error {
 	return nil
 }
 
-// formatTimestamp formats a time.Time for saving to the state file.
-func formatTimestamp(t time.Time) string {
+// FormatTimestamp formats a time.Time for saving to the state file.
+func FormatTimestamp(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }
