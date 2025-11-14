@@ -88,6 +88,9 @@ func Load(defaultEnvFile, defaultBrokerEnvFile string) (Config, error) {
 	if cfg.PostTimeout <= 0 {
 		return Config{}, fmt.Errorf("post timeout must be positive")
 	}
+	if cfg.ProverID == "" {
+		return Config{}, fmt.Errorf("SCRAPER_PROVER_ID (or PROVER_ID) must be set")
+	}
 
 	return cfg, nil
 }

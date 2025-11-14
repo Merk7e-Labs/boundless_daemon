@@ -46,11 +46,12 @@ without double counting.
 | `SCRAPER_INTERVAL` | Interval between scrapes (Go duration, e.g. `60s`, `5m`). | `15m` |
 | `SCRAPER_COMMAND_TIMEOUT` | Timeout for the docker log command. | `60s` |
 | `SCRAPER_POST_TIMEOUT` | Timeout for posting metrics. | `15s` |
-| `SCRAPER_PROVER_ID` | Optional prover identifier reported with metrics. | _(empty)_ |
+| `SCRAPER_PROVER_ID` | **Required.** Prover identifier/address reported with metrics. | _(none)_ |
 | `SCRAPER_PROVER_ADDRESS` | Optional prover address sent with payloads. | _(empty)_ |
 
 You can also point `--env` at any dotenv file (default `.env`). Additional env
 files can be chained with `SCRAPER_ENV_FILE` and `SCRAPER_BROKER_ENV_FILE`.
+`SCRAPER_PROVER_ID` must match a prover registered in the dashboard backend.
 
 ## Running locally
 

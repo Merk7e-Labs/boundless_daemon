@@ -52,7 +52,9 @@ func RunOnce(cfg config.Config, st state.State) (RunResult, state.State, error) 
 		sinceArg = fmt.Sprintf("--since %s", since.UTC().Format(time.RFC3339Nano))
 		log.Printf("Resuming from last timestamp: %s", sinceArg)
 	} else {
-		log.Println("No previous timestamp found; scraping full log history.")
+		since = now.Add(-cfg.InitialLookback)
+		sinceArg = fmt.Sprintf("--since %s", since.UTC().Format(time.RFC3339Nano))
+		log.Printf("No previous timestamp found; initial lookback %s (since %s).", cfg.InitialLookback, sinceArg)
 	}
 
 	if cfg.LogFile != "" {
