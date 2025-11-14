@@ -113,8 +113,11 @@ func RunOnce(cfg config.Config, st state.State) (RunResult, state.State, error) 
 		result.WindowEnd = latest
 	}
 	result.WindowStart = since
-	if result.WindowEnd.Before(result.WindowStart) {
-		result.WindowEnd = result.WindowStart
+	if result.WindowEnd.IsZero() {
+		result.WindowEnd = now
+	}
+	if !result.WindowEnd.After(result.WindowStart) {
+		result.WindowEnd = result.WindowStart.Add(time.Second)
 	}
 
 	windowOrders := result.OrdersCompleted
