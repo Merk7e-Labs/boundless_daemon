@@ -24,8 +24,8 @@ var (
 	// Match timestamps like 2025-11-07T08:57:30.266799Z anywhere in a line
 	timestampRegex = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z`)
 
-	// Match only Completed order lines whose order ID starts with 0x5a1f4d
-	targetOrderRegex = regexp.MustCompile(`�o"\s*Completed order:\s*(0x5a1f4d[a-fA-F0-9]+)`)
+	// Match only "Completed order" lines whose order ID starts with 0x5a1f4d
+	targetOrderRegex = regexp.MustCompile(`Completed order:\s*(0x5a1f4d[a-fA-F0-9]+)`)
 
 	completedOrderPrefix = "0x5a1f4d"
 )
