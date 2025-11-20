@@ -1,13 +1,13 @@
-package main
+package config
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
+
+	"boundless_scraper/internal/filesystem"
 )
 
 type Config struct {
@@ -19,6 +19,7 @@ type Config struct {
 	EnvFile         string
 	BrokerEnvFile   string
 	ProverID        string
+	ProverAddress   string
 	Interval        time.Duration
 	InitialLookback time.Duration
 	StateFile       string
@@ -26,44 +27,7 @@ type Config struct {
 	PostTimeout     time.Duration
 }
 
-func loadEnvFile(path string) error {
-	if path == "" {
-		return nil
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if strings.HasPrefix(line, "export ") {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		if key == "" {
-			continue
-		}
-		value := strings.TrimSpace(parts[1])
-		value = strings.Trim(value, "\"'")
-		_ = os.Setenv(key, value)
-	}
-	return scanner.Err()
-}
-
-func loadConfig(defaultEnvFile, defaultBrokerEnvFile string) (Config, error) {
+func Load(defaultEnvFile, defaultBrokerEnvFile string) (Config, error) {
 	cfg := Config{
 		Endpoint:        strings.TrimSpace(os.Getenv("SCRAPER_ENDPOINT")),
 		Service:         firstNonEmpty(os.Getenv("SCRAPER_SERVICE"), "broker"),
@@ -74,7 +38,8 @@ func loadConfig(defaultEnvFile, defaultBrokerEnvFile string) (Config, error) {
 		BrokerEnvFile:   firstNonEmpty(os.Getenv("SCRAPER_BROKER_ENV_FILE"), defaultBrokerEnvFile),
 		StateFile:       firstNonEmpty(os.Getenv("SCRAPER_STATE_FILE"), "scraper_state.json"),
 		ProverID:        firstNonEmpty(os.Getenv("SCRAPER_PROVER_ID"), os.Getenv("PROVER_ID")),
-		Interval:        parseDurationEnv("SCRAPER_INTERVAL", time.Minute),
+		ProverAddress:   firstNonEmpty(os.Getenv("SCRAPER_PROVER_ADDRESS"), os.Getenv("PROVER_ADDRESS")),
+		Interval:        parseDurationEnv("SCRAPER_INTERVAL", 15*time.Minute),
 		InitialLookback: parseDurationEnv("SCRAPER_INITIAL_LOOKBACK", 10*time.Minute),
 		CommandTimeout:  parseDurationEnv("SCRAPER_COMMAND_TIMEOUT", time.Minute),
 		PostTimeout:     parseDurationEnv("SCRAPER_POST_TIMEOUT", 15*time.Second),
@@ -85,14 +50,14 @@ func loadConfig(defaultEnvFile, defaultBrokerEnvFile string) (Config, error) {
 	}
 
 	if cfg.LogFile != "" {
-		logPath, err := expandPath(cfg.LogFile)
+		logPath, err := filesystem.ExpandPath(cfg.LogFile)
 		if err != nil {
 			return Config{}, err
 		}
 		cfg.LogFile = logPath
 	}
 
-	workdir, err := expandPath(cfg.Workdir)
+	workdir, err := filesystem.ExpandPath(cfg.Workdir)
 	if err != nil {
 		return Config{}, err
 	}
@@ -108,7 +73,7 @@ func loadConfig(defaultEnvFile, defaultBrokerEnvFile string) (Config, error) {
 		return Config{}, err
 	}
 
-	statePath, err := expandPath(cfg.StateFile)
+	statePath, err := filesystem.ExpandPath(cfg.StateFile)
 	if err != nil {
 		return Config{}, err
 	}
@@ -123,6 +88,9 @@ func loadConfig(defaultEnvFile, defaultBrokerEnvFile string) (Config, error) {
 	if cfg.PostTimeout <= 0 {
 		return Config{}, fmt.Errorf("post timeout must be positive")
 	}
+	if cfg.ProverID == "" {
+		return Config{}, fmt.Errorf("SCRAPER_PROVER_ID (or PROVER_ID) must be set")
+	}
 
 	return cfg, nil
 }
@@ -132,7 +100,7 @@ func resolveOptionalFile(path string) (string, error) {
 		return "", nil
 	}
 
-	expanded, err := expandPath(path)
+	expanded, err := filesystem.ExpandPath(path)
 	if err != nil {
 		return "", err
 	}
@@ -166,18 +134,4 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
-}
-
-func expandPath(path string) (string, error) {
-	if path == "" {
-		return path, nil
-	}
-	if strings.HasPrefix(path, "~") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
-	}
-	return filepath.Abs(path)
 }

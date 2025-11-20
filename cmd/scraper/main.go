@@ -1,29 +1,37 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"log"
 	"os"
-	"time"
+	"os/signal"
+	"syscall"
+
+	"boundless_scraper/internal/app"
+	"boundless_scraper/internal/config"
+	"boundless_scraper/internal/envfile"
+	"boundless_scraper/internal/filesystem"
 )
 
 const brokerEnvPath = "~/boundless/.env.broker"
 
 func main() {
-	envPath := flag.String("env", ".env", "path to .env file")
+	envPath := flag.String("env", ".env.example", "path to .env file")
 	runOnceFlag := flag.Bool("once", false, "run a single scrape and exit")
 	flag.Parse()
 
 	expandedEnvPath := *envPath
 	if expandedEnvPath != "" {
 		var err error
-		expandedEnvPath, err = expandPath(expandedEnvPath)
+		expandedEnvPath, err = filesystem.ExpandPath(expandedEnvPath)
 		if err != nil {
 			log.Fatalf("failed to resolve env file path: %v", err)
 		}
 	}
 
-	if err := loadEnvFile(expandedEnvPath); err != nil {
+	if err := envfile.Load(expandedEnvPath); err != nil {
 		log.Fatalf("failed to load env file: %v", err)
 	}
 
@@ -33,12 +41,12 @@ func main() {
 	}
 	if configEnvPath != "" {
 		var err error
-		configEnvPath, err = expandPath(configEnvPath)
+		configEnvPath, err = filesystem.ExpandPath(configEnvPath)
 		if err != nil {
 			log.Fatalf("failed to resolve config env file path: %v", err)
 		}
 		if configEnvPath != expandedEnvPath {
-			if err := loadEnvFile(configEnvPath); err != nil {
+			if err := envfile.Load(configEnvPath); err != nil {
 				log.Fatalf("failed to load config env file: %v", err)
 			}
 		}
@@ -50,44 +58,28 @@ func main() {
 	}
 	if brokerEnv != "" {
 		var err error
-		brokerEnv, err = expandPath(brokerEnv)
+		brokerEnv, err = filesystem.ExpandPath(brokerEnv)
 		if err != nil {
 			log.Fatalf("failed to resolve broker env file path: %v", err)
 		}
 	}
 
-	if err := loadEnvFile(brokerEnv); err != nil {
+	if err := envfile.Load(brokerEnv); err != nil {
 		log.Fatalf("failed to load broker env file: %v", err)
 	}
 
-	cfg, err := loadConfig(configEnvPath, brokerEnv)
+	cfg, err := config.Load(configEnvPath, brokerEnv)
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
 	log.Printf("starting scraper for service %q using command %q", cfg.Service, cfg.LogCommand)
 
-	state, err := loadState(cfg.StateFile)
-	if err != nil {
-		log.Fatalf("failed to load state: %v", err)
-	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	for {
-		result, newState, err := runOnce(cfg, state)
-		if err != nil {
-			log.Printf("scrape failed: %v", err)
-		} else {
-			state = newState
-			if err := saveState(cfg.StateFile, state); err != nil {
-				log.Printf("failed to save state: %v", err)
-			}
-			log.Printf("prover=%q orders=%d cycles=%.2f window=[%s -> %s]", cfg.ProverID, result.OrdersCompleted, result.TotalCycles, result.WindowStart.Format(time.RFC3339Nano), result.WindowEnd.Format(time.RFC3339Nano))
-		}
-
-		if *runOnceFlag {
-			break
-		}
-
-		time.Sleep(cfg.Interval)
+	runner := app.New(cfg)
+	if err := runner.Run(ctx, *runOnceFlag); err != nil && !errors.Is(err, context.Canceled) {
+		log.Fatalf("scraper exited with error: %v", err)
 	}
 }

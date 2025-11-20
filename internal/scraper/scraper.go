@@ -1,4 +1,4 @@
-package main
+package scraper
 
 import (
 	"bufio"
@@ -15,14 +15,17 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"boundless_scraper/internal/config"
+	"boundless_scraper/internal/state"
 )
 
 var (
 	// Match timestamps like 2025-11-07T08:57:30.266799Z anywhere in a line
 	timestampRegex = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z`)
 
-	// Match only Completed order lines whose order ID starts with 0x5a1f4d
-	targetOrderRegex = regexp.MustCompile(`✨\s*Completed order:\s*(0x5a1f4d[a-fA-F0-9]+)`)
+	// Match only "Completed order" lines whose order ID starts with 0x5a1f4d
+	targetOrderRegex = regexp.MustCompile(`Completed order:\s*(0x5a1f4d[a-fA-F0-9]+)`)
 
 	completedOrderPrefix = "0x5a1f4d"
 )
@@ -36,32 +39,33 @@ type RunResult struct {
 	TotalCycles     float64
 }
 
-// runOnce performs one scrape iteration
-func runOnce(cfg Config, state State) (RunResult, State, error) {
+// RunOnce performs one scrape iteration.
+func RunOnce(cfg config.Config, st state.State) (RunResult, state.State, error) {
 	now := time.Now().UTC()
 
 	var since time.Time
 	var sinceArg string
 	var logReader io.Reader
 
-	if ts, ok := state.Timestamp(); ok {
+	if ts, ok := st.Timestamp(); ok {
 		since = ts
 		sinceArg = fmt.Sprintf("--since %s", since.UTC().Format(time.RFC3339Nano))
 		log.Printf("Resuming from last timestamp: %s", sinceArg)
 	} else {
-		log.Println("No previous timestamp found; scraping full log history.")
+		since = now.Add(-cfg.InitialLookback)
+		sinceArg = fmt.Sprintf("--since %s", since.UTC().Format(time.RFC3339Nano))
+		log.Printf("No previous timestamp found; initial lookback %s (since %s).", cfg.InitialLookback, sinceArg)
 	}
 
 	if cfg.LogFile != "" {
 		log.Printf("reading logs from file %s", cfg.LogFile)
 		f, err := os.Open(cfg.LogFile)
 		if err != nil {
-			return RunResult{}, state, fmt.Errorf("failed to open log file: %w", err)
+			return RunResult{}, st, fmt.Errorf("failed to open log file: %w", err)
 		}
 		defer f.Close()
 		logReader = f
 	} else {
-		// Replace placeholders; support templates where {since} is the whole flag
 		renderedCommand := strings.ReplaceAll(cfg.LogCommand, "{service}", cfg.Service)
 		if sinceArg == "" {
 			if strings.Contains(renderedCommand, "--since {since}") {
@@ -73,7 +77,6 @@ func runOnce(cfg Config, state State) (RunResult, State, error) {
 			renderedCommand = strings.ReplaceAll(renderedCommand, "{since}", sinceArg)
 		}
 
-		// Load .env sources with bash
 		var envSources []string
 		if strings.TrimSpace(cfg.EnvFile) != "" {
 			envSources = append(envSources, cfg.EnvFile)
@@ -93,15 +96,14 @@ func runOnce(cfg Config, state State) (RunResult, State, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), cfg.CommandTimeout)
 		defer cancel()
 
-		// Use bash to support "source"
 		cmd := exec.CommandContext(ctx, "bash", "-c", renderedCommand)
 		cmd.Dir = cfg.Workdir
 		output, err := cmd.CombinedOutput()
 		if ctx.Err() == context.DeadlineExceeded {
-			return RunResult{}, state, fmt.Errorf("log command timed out: %w", ctx.Err())
+			return RunResult{}, st, fmt.Errorf("log command timed out: %w", ctx.Err())
 		}
 		if err != nil {
-			return RunResult{}, state, fmt.Errorf("log command failed: %w (output: %s)", err, bytes.TrimSpace(output))
+			return RunResult{}, st, fmt.Errorf("log command failed: %w (output: %s)", err, bytes.TrimSpace(output))
 		}
 		logReader = bytes.NewReader(output)
 	}
@@ -111,43 +113,42 @@ func runOnce(cfg Config, state State) (RunResult, State, error) {
 		result.WindowEnd = latest
 	}
 	result.WindowStart = since
-	if result.WindowEnd.Before(result.WindowStart) {
-		result.WindowEnd = result.WindowStart
+	if result.WindowEnd.IsZero() {
+		result.WindowEnd = now
+	}
+	if !result.WindowEnd.After(result.WindowStart) {
+		result.WindowEnd = result.WindowStart.Add(time.Second)
 	}
 
 	windowOrders := result.OrdersCompleted
 	windowCycles := float64(windowOrders) * 0.01
 
-	totalOrders := state.TotalOrders
-	totalCycles := state.TotalCycles
+	totalOrders := st.TotalOrders
+	totalCycles := st.TotalCycles
 
 	if windowOrders > 0 {
 		totalOrders += windowOrders
 		totalCycles += windowCycles
 	}
 
-	result.TotalCycles = totalCycles
-	result.OrdersCompleted = totalOrders
-
-	// Save latest timestamp
-	if !latest.IsZero() && (state.LastTimestamp == "" || latest.After(since)) {
-		state.LastTimestamp = formatTimestamp(latest)
-	} else if state.LastTimestamp == "" {
-		state.LastTimestamp = formatTimestamp(now)
+	if !latest.IsZero() && (st.LastTimestamp == "" || latest.After(since)) {
+		st.LastTimestamp = state.FormatTimestamp(latest)
+	} else if st.LastTimestamp == "" {
+		st.LastTimestamp = state.FormatTimestamp(now)
 	}
 
-	state.TotalOrders = totalOrders
-	state.TotalCycles = totalCycles
+	st.TotalOrders = totalOrders
+	st.TotalCycles = totalCycles
 
-	log.Printf("scraped data: prover=%q window_orders=%d total_orders=%d (prefix=%s) total_cycles=%.2f window=[%s -> %s]",
-		cfg.ProverID, windowOrders, result.OrdersCompleted, completedOrderPrefix, result.TotalCycles,
+	log.Printf("scraped data: prover=%q address=%q window_orders=%d total_orders=%d (prefix=%s) total_cycles=%.2f window=[%s -> %s]",
+		cfg.ProverID, cfg.ProverAddress, windowOrders, result.OrdersCompleted, completedOrderPrefix, result.TotalCycles,
 		result.WindowStart.Format(time.RFC3339Nano), result.WindowEnd.Format(time.RFC3339Nano))
 
 	if err := postMetrics(cfg, result); err != nil {
-		return RunResult{}, state, err
+		return RunResult{}, st, err
 	}
 
-	return result, state, nil
+	return result, st, nil
 }
 
 func shellQuote(value string) string {
@@ -157,7 +158,6 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
-// parseLogs scans logs for completed orders with the 0x5a1f4d prefix
 func parseLogs(r io.Reader, since time.Time) (RunResult, time.Time) {
 	var result RunResult
 	var latest time.Time
@@ -181,7 +181,6 @@ func parseLogs(r io.Reader, since time.Time) (RunResult, time.Time) {
 				continue
 			}
 			if !hasTs && !since.IsZero() {
-				// Without timestamps we cannot ensure incremental progress, so skip when resuming.
 				continue
 			}
 			result.OrdersCompleted++
@@ -210,8 +209,7 @@ func extractTimestamp(line string) (time.Time, bool) {
 	return ts.UTC(), true
 }
 
-// postMetrics sends results to the configured endpoint
-func postMetrics(cfg Config, result RunResult) error {
+func postMetrics(cfg config.Config, result RunResult) error {
 	payload := map[string]any{
 		"orders_completed":       result.OrdersCompleted,
 		"total_cycles_trillions": result.TotalCycles,
@@ -219,6 +217,7 @@ func postMetrics(cfg Config, result RunResult) error {
 		"window_end":             result.WindowEnd.UTC().Format(time.RFC3339Nano),
 		"service":                cfg.Service,
 		"prover_id":              cfg.ProverID,
+		"prover_address":         cfg.ProverAddress,
 		"prefix":                 completedOrderPrefix,
 		"order_ids":              result.OrderIDs,
 	}
